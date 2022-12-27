@@ -20,7 +20,7 @@
 #SBATCH --gres=gpu:rtx2080ti:2
 
 # Install dependencies #
-singularity exec --nv docker://pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime pip install -U simglucose # Gym will also be installed
+singularity exec --nv docker://pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime pip install -U simglucose # Gym will also be installed
 
 # Run script #
-singularity exec --nv docker://pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime python simglucose_DDPG.py
+singularity exec --nv docker://pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime python simglucose_DDPG.py
