@@ -1,8 +1,12 @@
+print('HEEELLO WOOOOORLD')
+
 import numpy as np
 import torch as th
 import torch.nn.functional as F
 from copy import deepcopy
 import gym
+
+print('HELLO WORLD')
 
 # Define Replay Buffer
 class ReplayBuffer:
@@ -112,14 +116,15 @@ class DDPGAgent(object):
 
 
 def main():
+    print('2')
     gym.envs.register(
         id='simglucose-adolescent2-v0',
         entry_point='simglucose.envs:T1DSimEnv',
         kwargs={'patient_name': 'adolescent#002'}
     )
-
+    print('3')
     env = gym.make('simglucose-adolescent2-v0')
-
+    print('4')
     device = th.device('cuda' if th.cuda.is_available() else 'cpu')
 
     state_dimension = env.observation_space.shape[0]
@@ -148,7 +153,7 @@ def main():
         for i, score in enumerate(score_history):
             f.write((i+1, score))
 
-    return
 
 if __name__ == '__main__':
+    print('Hello World 1')
     main()
