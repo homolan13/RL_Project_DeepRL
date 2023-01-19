@@ -91,7 +91,9 @@ class DDPGAgent(object):
         # Replay buffer
         self.replay_buffer = ReplayBuffer(self.state_dim, self.action_dim, self.device)
 
-    def save_agent(self, path='agent_state'):
+    def save_agent(self, path=None):
+        if path is None:
+            path = 'agent_state'
         models = [self.actor, self.actor_target, self.actor_optimizer, self.critic, self.critic_target, self.critic_optimizer]
         fnames = ['actor', 'actor_target', 'actor_optimizer', 'critic', 'critic_target', 'critic_optimizer']
         if not os.path.exists(path):
@@ -100,7 +102,9 @@ class DDPGAgent(object):
             th.save(m.state_dict(), os.path.join(path, f+'.pt'))
         print(f'Agent saved to folder {path}')
 
-    def load_agent(self, path='agent_state'):
+    def load_agent(self, path=None):
+        if path is None:
+            path = 'agent_state'
         models = [self.actor, self.actor_target, self.actor_optimizer, self.critic, self.critic_target, self.critic_optimizer]
         fnames = ['actor', 'actor_target', 'actor_optimizer', 'critic', 'critic_target', 'critic_optimizer']
         for m, f in zip(models, fnames):
@@ -116,7 +120,7 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
-    def _train(self, batch_size=32, target_update_period=100, max_iter=5000, max_patience=100, personalized=False):
+    def _train(self, batch_size=32, target_update_period=50, max_iter=5000, max_patience=100, path=None):
         CHO_idx = int(2*self.state_dim/3 - 1)
         critic_training_loss = []
         min_critic_loss = float('inf')
@@ -176,7 +180,7 @@ class DDPGAgent(object):
                 self.actor_optimizer.step()
                 # Save training loss   
                 if critic_loss < min_critic_loss:
-                    self.save_agent()
+                    self.save_agent(path=path)
                     min_critic_loss = critic_loss
                     patience = max_patience
                 critic_training_loss.append([critic_loss.item(), actor_loss.item()])
@@ -197,17 +201,18 @@ class DDPGAgent(object):
         return critic_training_loss
 
     def general_training(self, batch_size=32, target_update_period=100, max_iter=5000, max_patience=100, path='agent_state', filename='general_training_loss.json'):
-        g_critic_loss = self._train(self, batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience)
+        g_critic_loss = self._train(self, batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
         self.is_pretrained = True
 
-        file = os.path.join(path, filename)
-        with open(file, 'w') as f:
-            json.dump(g_critic_loss, f)
-        print(f'Critic loss saved to {file}')
+        if filename is not None:
+            file = os.path.join(path, filename)
+            with open(file, 'w') as f:
+                json.dump(g_critic_loss, f)
+            print(f'Critic loss saved to {file}')
 
         return g_critic_loss
 
-    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, max_iter=1000, max_patience=50, path='agent_state', filename='general_training_loss.json'):
+    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, max_iter=1000, max_patience=50, path='agent_state_finetuned', filename='general_training_loss.json'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
         assert individual_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
         assert individual_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
@@ -216,21 +221,27 @@ class DDPGAgent(object):
         temp_env = self.env
         self.env = individual_env
 
-        ft_critic_loss = self._train(self, batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience)
+        ft_critic_loss = self._train(self, batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
 
         # Change back to original environment
         self.env = temp_env
 
-        file = os.path.join(path, filename)
-        with open(file, 'w') as f:
-            json.dump(ft_critic_loss, f)
-        print(f'Critic loss saved to {file}')
+        if filename is not None:
+            file = os.path.join(path, filename)
+            with open(file, 'w') as f:
+                json.dump(ft_critic_loss, f)
+            print(f'Critic loss saved to {file}')
 
         return ft_critic_loss
 
     def evaluate_policy(self, individual_env=None, max_iter=1000, render=False):
+        CGM_idx = int(self.state_dim/3 - 1)
         CHO_idx = int(2*self.state_dim/3 - 1)
-        TIR = ... # TODO
+
+        # initialize metrics
+        actor_output = []
+        in_range = {'target': 0, 'hypo': 0, 'hyper': 0, 'total': 0}
+        metrics = dict()
 
         # Change to individual environment (but keep old one)
         if individual_env is not None:
@@ -239,32 +250,45 @@ class DDPGAgent(object):
             temp_env = self.env
             self.env = individual_env
 
-        observation, _ = self.env.reset()
+        state, info = self.env.reset()
         last_meal = 0
-        for t in range(max_iter):
+        for t in tqdm(range(max_iter)):
             
-            print('Evaluating...', end='\r')
-
             if render:
                 self.env.render(mode='human')
 
-            if last_meal > observation[CHO_idx]:
-                action = self.select_action(observation)
+            if last_meal > state[CHO_idx]: # Bolus given
+                action = self.select_action(state)
+                actor_output.append((info['time'], action))
             else:
                 action = [0, 0, 0]
-            last_meal = observation[CHO_idx]
-            observation, _, done, _, _ = self.env.step(action)  
+            last_meal = state[CHO_idx]
+            state, _, done, _, info = self.env.step(action)
+
+            if state[CGM_idx] < 70:
+                in_range['hypo'] += 1
+            elif state[CGM_idx] > 180:
+                in_range['hyper'] += 1
+            else:
+                in_range['target'] += 1
+            in_range['total'] += 1
+
             if done:         
                 print(f'Episode finished after {t+1} timesteps (patient died).')
                 break
 
         print('Episode finished.')
 
+        metrics['actor_output'] = actor_output
+        metrics['TIR'] = in_range['target']/in_range['total']
+        metrics['hypo'] = in_range['hypo']/in_range['total']
+        metrics['hyper'] = in_range['hyper']/in_range['total']
+
         if individual_env is not None:
             # Change back to original environment
             self.env = temp_env
 
-        return TIR
+        return metrics
 
         
         
