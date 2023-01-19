@@ -120,7 +120,7 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
-    def _train(self, batch_size=32, target_update_period=100, max_iter=5000, max_patience=100, path=None):
+    def _train(self, batch_size=32, target_update_period=50, max_iter=5000, max_patience=100, path=None):
         CHO_idx = int(2*self.state_dim/3 - 1)
         critic_training_loss = []
         min_critic_loss = float('inf')
@@ -252,10 +252,8 @@ class DDPGAgent(object):
 
         state, info = self.env.reset()
         last_meal = 0
-        for t in range(max_iter):
+        for t in tqdm(range(max_iter)):
             
-            print('Evaluating...', end='\r')
-
             if render:
                 self.env.render(mode='human')
 
