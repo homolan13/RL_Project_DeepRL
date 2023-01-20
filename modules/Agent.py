@@ -108,7 +108,7 @@ class DDPGAgent(object):
         models = [self.actor, self.actor_target, self.actor_optimizer, self.critic, self.critic_target, self.critic_optimizer]
         fnames = ['actor', 'actor_target', 'actor_optimizer', 'critic', 'critic_target', 'critic_optimizer']
         for m, f in zip(models, fnames):
-            m = th.load(os.path.join(path, f+'.pt'), map_location='cpu')
+            m = th.load(os.path.join(path, f+'.pt'), map_location=self.device)
         print(f'Agent loaded from folder {path}')
     
     def soft_update(self):
@@ -231,7 +231,7 @@ class DDPGAgent(object):
 
         return ft_training_loss
 
-    def evaluate_policy(self, individual_env=None, max_iter=1000, render=False):
+    def evaluate_policy(self, individual_env=None, max_iter=1000, render=False, print_output=True):
         CGM_idx = int(self.state_dim/3 - 1)
         CHO_idx = int(2*self.state_dim/3 - 1)
 
@@ -249,7 +249,11 @@ class DDPGAgent(object):
 
         state, info = self.env.reset()
         last_meal = 0
-        for t in tqdm(range(max_iter)):
+        for t in range(max_iter):
+            
+            if print_output:
+                print(20*' ', end='\r')
+                print('Still alive', (t%4)*'.', end='\r')
             
             if render:
                 self.env.render(mode='human')
@@ -270,11 +274,13 @@ class DDPGAgent(object):
                 in_range['target'] += 1
             in_range['total'] += 1
 
-            if done:         
-                print(f'Episode finished after {t+1} timesteps (patient died).')
+            if done: 
+                if print_output:        
+                    print(f'Episode finished after {t+1} timesteps (patient died).')
                 break
 
-        print('Episode finished.')
+        if print_output:
+            print('Episode finished.')
 
         metrics['actor_output'] = actor_output
         metrics['TIR'] = in_range['target']/in_range['total']
