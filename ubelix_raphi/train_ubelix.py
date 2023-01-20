@@ -118,7 +118,7 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
-    def train(self, batch_size=32, target_update_period=10, max_iter=10000, max_patience=200):
+    def train(self, batch_size=32, target_update_period=10, max_iter=10000, max_patience=700):
         CHO_idx = int(2*self.state_dim/3 - 1)
         critic_training_loss = []
         min_critic_loss = float('inf')
@@ -163,7 +163,7 @@ class DDPGAgent(object):
                 # Compute the target Q value
                 target_q = self.critic_target(next_states, self.actor_target(next_states))
                 target_q = rewards + (self.discount * target_q).detach()
-                # target_q = rewards + ((not dones) * self.discount * target_q).detach() # XXX: ?????????????
+                # target_q = rewards + ((th.logical_not(dones)) * self.discount * target_q).detach() # XXX: ?????????????
                 # Get current Q estimate
                 current_q = self.critic(states, actions)
                 # Compute critic loss
