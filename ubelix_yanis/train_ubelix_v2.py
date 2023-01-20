@@ -2,9 +2,11 @@ import numpy as np
 import torch as th
 import torch.nn.functional as F
 from copy import deepcopy
+import simglucose
+import gym
+from gym.wrappers import FlattenObservation
 from tqdm import tqdm
 import os
-import json
 
 # Define Replay Buffer
 class ReplayBuffer:
@@ -120,9 +122,9 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
-    def _train(self, batch_size, target_update_period, max_iter, max_patience, path=None):
+    def _train(self, batch_size, target_update_period, max_iter, max_patience, path):
         CHO_idx = int(2*self.state_dim/3 - 1)
-        training_loss = []
+        critic_training_loss = []
         min_critic_loss = float('inf')
         patience = max_patience
         for it in tqdm(range(max_iter)):
@@ -163,7 +165,7 @@ class DDPGAgent(object):
                 # Compute the target Q value
                 target_q = self.critic_target(next_states, self.actor_target(next_states))
                 target_q = rewards + (self.discount * target_q).detach()
-                # target_q = rewards + (th.logical_not(dones) * self.discount * target_q).detach() # XXX: ?????????????
+                # target_q = rewards + ((not dones) * self.discount * target_q).detach() # XXX: ?????????????
                 # Get current Q estimate
                 current_q = self.critic(states, actions)
                 # Compute critic loss
@@ -183,11 +185,14 @@ class DDPGAgent(object):
                     self.save_agent(path=path)
                     min_critic_loss = critic_loss
                     patience = max_patience
-                training_loss.append([critic_loss.item(), actor_loss.item()])
+                critic_training_loss.append([critic_loss.item(), actor_loss.item()])
                 
                 # Update target networks
                 if it % target_update_period == 0:
                     self.soft_update()
+
+                if it % 5 == 0:
+                    print(f'Iteration: {it+1}, Critic loss: {critic_loss.item():.3f} (min: {min_critic_loss:.3f}), Patience left: {patience}')
 
                 # Convergence check
                 patience -= 1
@@ -195,21 +200,21 @@ class DDPGAgent(object):
                     print('Critic converged...')
                     break
 
-        return training_loss
+        return critic_training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, max_iter=6000, max_patience=500, path='agent_state', filename='general_training_loss.json'):
-        g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
+    def general_training(self, batch_size=32, target_update_period=100, max_iter=5000, max_patience=100, path='agent_state', filename='general_training_loss.json'):
+        g_critic_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
         self.is_pretrained = True
 
-        if filename is not None:
-            file = os.path.join(path, filename)
-            with open(file, 'w') as f:
-                json.dump(g_training_loss, f)
-            print(f'Critic loss saved to {file}')
+        # if filename is not None:
+        #     file = os.path.join(path, filename)
+        #     with open(file, 'w') as f:
+        #         json.dump(g_critic_loss, f)
+        #     print(f'Critic loss saved to {file}')
 
-        return g_training_loss
+        return g_critic_loss
 
-    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, max_iter=1000, max_patience=100, path='agent_state_finetuned', filename='general_training_loss.json'):
+    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, max_iter=1000, max_patience=50, path='agent_state_finetuned', filename='general_training_loss.json'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
         assert individual_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
         assert individual_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
@@ -218,18 +223,18 @@ class DDPGAgent(object):
         temp_env = self.env
         self.env = individual_env
 
-        ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
+        ft_critic_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
 
         # Change back to original environment
         self.env = temp_env
 
-        if filename is not None:
-            file = os.path.join(path, filename)
-            with open(file, 'w') as f:
-                json.dump(ft_training_loss, f)
-            print(f'Critic loss saved to {file}')
+        # if filename is not None:
+        #     file = os.path.join(path, filename)
+        #     with open(file, 'w') as f:
+        #         json.dump(ft_critic_loss, f)
+        #     print(f'Critic loss saved to {file}')
 
-        return ft_training_loss
+        return ft_critic_loss
 
     def evaluate_policy(self, individual_env=None, max_iter=1000, render=False):
         CGM_idx = int(self.state_dim/3 - 1)
@@ -287,5 +292,57 @@ class DDPGAgent(object):
 
         return metrics
 
-        
-        
+# Define reward function based on paper
+def custom_reward(BG_history):
+    BG = BG_history[-1]
+    # BG: blood glucose level
+    # Hypoglycemia: BG < 70 mg/dL
+    if 30 <= BG and BG < 70:
+        return -1.5
+    # Normoglycemia: 70 mg/dL < BG < 180 mg/dL
+    elif 70 <= BG and BG <= 180:
+        return 0.5
+    # Hyperglycemia: BG > 180 mg/dL
+    elif 180 < BG and BG <= 300:
+        return -0.8
+    # elif 300 < BG and BG <= 350:
+    #     return -1
+    # Other cases
+    else:
+        return -10
+
+def make_env(id: str, patient_name: str, history_length=6, reward_function=custom_reward, print_space=True, flatten=True):
+    gym.envs.register(
+        id=id,
+        entry_point='simglucose.envs:T1DSimEnvBolus',
+        kwargs={'patient_name': [patient_name],
+            'history_length': history_length, 'reward_fun': reward_function,
+            'enable_meal': True})
+
+    env = gym.make(id)
+
+    if print_space:
+        print('State space:\n', env.observation_space)
+        print('Action space:\n', env.action_space)
+
+    if flatten:
+        env = FlattenObservation(env)
+
+    return env
+
+def main():
+
+    average_patient = make_env('simglucose_average', 'average_adolescent', print_space=False)
+    agent = DDPGAgent(average_patient)
+
+    critic_loss = agent.general_training(path='agent_state_test')
+
+    import matplotlib.pyplot as plt
+
+    plt.plot([x[0] for x in critic_loss])
+    plt.savefig('critic_loss.png')
+
+if __name__ == '__main__':
+    main()
+
+

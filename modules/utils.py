@@ -15,11 +15,11 @@ def custom_reward(BG_history):
     # Hyperglycemia: BG > 180 mg/dL
     elif 180 < BG and BG <= 300:
         return -0.8
-    elif 300 < BG and BG <= 350:
-        return -1
+    # elif 300 < BG and BG <= 350:
+    #     return -1
     # Other cases
     else:
-        return -2
+        return -10
 
 def make_env(id: str, patient_name: str, history_length=6, reward_function=custom_reward, print_space=True, flatten=True):
     gym.envs.register(
