@@ -139,12 +139,12 @@ class DDPGAgent(object):
                     last_meal = state[CHO_idx] #### XXX
                     state, reward, done, _, info = self.env.step(bolus_action)
                     reward_sum = reward
-                    while not done and state[CHO_idx] == 0 and (info['time'] - start_time).seconds < 5*3600:
+                    while not done and state[CHO_idx] == 0 and (info['time'] - start_time).total_seconds() < 5*3600:
                         action = [0, 0, 0]
                         last_meal = state[CHO_idx] #### XXX
                         state, reward, done, _, info = self.env.step(action)
                         reward_sum += reward
-                    reward_sum /= (info['time'] - start_time).seconds / 60
+                    reward_sum /= (info['time'] - start_time).total_seconds() / 60
                     next_state = state
                     self.replay_buffer.store(start_state, bolus_action, reward_sum, next_state, done)
                     print(f'Episode (reward: {reward_sum}) stored to memory ({self.replay_buffer.size})')
