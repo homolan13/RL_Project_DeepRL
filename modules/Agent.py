@@ -39,7 +39,7 @@ class ReplayBuffer:
             th.tensor(self.done_buffer[idx], dtype=th.float32).to(self.device)
         )
 
-# Define Actor and Critic networks
+# Define Actor and Critic networks (dimensions given in paper)
 class Actor(th.nn.Module): # state -> action
     def __init__(self, state_dim, action_dim):
         super(Actor, self).__init__()
@@ -79,7 +79,7 @@ class DDPGAgent(object):
         self.device = device
         self.discount = discount
         self.tau = tau
-        self.is_pretrained = False
+        self.is_pretrained = False # Is set to True when calling self.generalized_training and has to be True for self.personalized_training
         # Actor and Actor target
         self.actor = Actor(self.state_dim, self.action_dim).to(device)
         self.actor_optimizer = th.optim.Adam(self.actor.parameters(), lr=1e-4)
@@ -108,7 +108,7 @@ class DDPGAgent(object):
         models = [self.actor, self.actor_target, self.actor_optimizer, self.critic, self.critic_target, self.critic_optimizer]
         fnames = ['actor', 'actor_target', 'actor_optimizer', 'critic', 'critic_target', 'critic_optimizer']
         for m, f in zip(models, fnames):
-            m = th.load(os.path.join(path, f+'.pt'), map_location=self.device)
+            m.load_state_dict(th.load(os.path.join(path, f+'.pt'), map_location=self.device))
         print(f'Agent loaded from folder {path}')
     
     def soft_update(self):
@@ -120,8 +120,10 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
-    def _train(self, batch_size, target_update_period, max_iter, max_patience, path=None):
+    def _train(self, batch_size: int, target_update_period: int, iter: list, max_patience: int, add_noise: bool, path=None):
         CHO_idx = int(2*self.state_dim/3 - 1)
+        min_iter = iter[0]
+        max_iter = iter[1]
         training_loss = []
         min_critic_loss = float('inf')
         patience = max_patience
@@ -130,40 +132,43 @@ class DDPGAgent(object):
             state, info = self.env.reset()
             reset_time = info['time']
             done = False
-            last_meal = state[CHO_idx] # XXX
+            last_meal = state[CHO_idx]
             while not done and (info['time'] - reset_time).days < 4: # 4 days
-                if last_meal > state[CHO_idx]: # First step after meal
+                if last_meal > state[CHO_idx]: # First step after meal -> bolus injection
                     start_state = state
                     start_time = info['time']
-                    noise = np.random.normal(0, 0.3, (3,))
+                    if add_noise: # Add noise when doing general training
+                        noise = np.random.normal(0, 0.3, self.action_dim)
+                    else: # No noise when doing personalized training
+                        noise = [0] * self.action_dim
                     bolus_action = self.select_action(start_state) + noise
-                    last_meal = state[CHO_idx] #### XXX
-                    state, reward, done, _, info = self.env.step(bolus_action)
+                    last_meal = state[CHO_idx]
+                    state, reward, done, _, info = self.env.step(bolus_action) # inject bolus
+                    # Start of reward calculation
                     reward_sum = reward
                     while not done and state[CHO_idx] == 0 and (info['time'] - start_time).total_seconds() < 5*3600:
                         action = [0, 0, 0]
-                        last_meal = state[CHO_idx] #### XXX
+                        last_meal = state[CHO_idx]
                         state, reward, done, _, info = self.env.step(action)
                         reward_sum += reward
                     reward_sum /= (info['time'] - start_time).total_seconds() / 60
+                    # End of reward calculation
                     next_state = state
-                    self.replay_buffer.store(start_state, bolus_action, reward_sum, next_state, done)
-                    # print(f'Episode (reward: {reward_sum}) stored to memory ({self.replay_buffer.size})')
+                    self.replay_buffer.store(start_state, bolus_action, reward_sum, next_state, done) # add episode to replay buffer
  
-                else:
+                else: # If no bolus necessary -> action is 0
                     action = [0, 0, 0]
-                    last_meal = state[CHO_idx] #### XXX
+                    last_meal = state[CHO_idx]
                     state, _, done, _, info = self.env.step(action)
 
                 
             
-            if self.replay_buffer.size >= batch_size:
+            if self.replay_buffer.size >= batch_size: # Train only if replay buffer has enough samples
                 # Sample replay buffer
-                states, actions, rewards, next_states, dones = self.replay_buffer.sample(batch_size)
+                states, actions, rewards, next_states, _ = self.replay_buffer.sample(batch_size)
                 # Compute the target Q value
                 target_q = self.critic_target(next_states, self.actor_target(next_states))
                 target_q = rewards + (self.discount * target_q).detach()
-                # target_q = rewards + (th.logical_not(dones) * self.discount * target_q).detach() # XXX: ?????????????
                 # Get current Q estimate
                 current_q = self.critic(states, actions)
                 # Compute critic loss
@@ -182,7 +187,9 @@ class DDPGAgent(object):
                 if critic_loss < min_critic_loss:
                     self.save_agent(path=path)
                     min_critic_loss = critic_loss
-                    patience = max_patience
+                    patience = max_patience                  
+                else:
+                    patience -= 1
                 training_loss.append([critic_loss.item(), actor_loss.item()])
                 
                 # Update target networks
@@ -190,26 +197,25 @@ class DDPGAgent(object):
                     self.soft_update()
 
                 # Convergence check
-                patience -= 1
-                if patience == 0:
+                if patience == 0 and it > min_iter:
                     print('Critic converged...')
                     break
 
         return training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, max_iter=6000, max_patience=500, path='agent_state', filename='general_training_loss.json'):
-        g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
+    def general_training(self, batch_size=32, target_update_period=100, iter=[1000, 10000], max_patience=800, path='agent_state', filename='general_training_loss.json'):
+        g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
-        if filename is not None:
+        if filename is not None: # Save critic and actor loss to json file
             file = os.path.join(path, filename)
             with open(file, 'w') as f:
                 json.dump(g_training_loss, f)
-            print(f'Critic loss saved to {file}')
+            print(f'Training loss saved to {file}')
 
         return g_training_loss
 
-    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, max_iter=1000, max_patience=100, path='agent_state_finetuned', filename='general_training_loss.json'):
+    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, iter=[500, 5000], max_patience=500, path='agent_state_finetuned', filename='personalized_training_loss.json'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
         assert individual_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
         assert individual_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
@@ -218,12 +224,12 @@ class DDPGAgent(object):
         temp_env = self.env
         self.env = individual_env
 
-        ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, max_iter=max_iter, max_patience=max_patience, path=path)
+        ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)
 
         # Change back to original environment
         self.env = temp_env
 
-        if filename is not None:
+        if filename is not None: # Save critic and actor loss to json file
             file = os.path.join(path, filename)
             with open(file, 'w') as f:
                 json.dump(ft_training_loss, f)
@@ -231,14 +237,14 @@ class DDPGAgent(object):
 
         return ft_training_loss
 
-    def evaluate_policy(self, individual_env=None, max_iter=1000, render=False, print_output=True):
+    def evaluate_policy(self, individual_env=None, max_iter=int(4*24*3600/3), render=False, print_output=True): # Max_iter is set to yield an episode for 4 days, given sample rate of 3 min
         CGM_idx = int(self.state_dim/3 - 1)
         CHO_idx = int(2*self.state_dim/3 - 1)
 
         # initialize metrics
         actor_output = []
         in_range = {'target': 0, 'hypo': 0, 'hyper': 0, 'total': 0}
-        metrics = dict()
+        metrics = {'is_alive': True}
 
         # Change to individual environment (but keep old one)
         if individual_env is not None:
@@ -275,7 +281,8 @@ class DDPGAgent(object):
             in_range['total'] += 1
 
             if done: 
-                if print_output:        
+                if print_output:
+                    metrics['is_alive'] = False    
                     print(f'Episode finished after {t+1} timesteps (patient died).')
                 break
 
