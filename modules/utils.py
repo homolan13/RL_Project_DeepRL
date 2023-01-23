@@ -17,7 +17,7 @@ def custom_reward(BG):
         return -1
     # Other cases (THIS IS MODIFIED)
     else:
-        return -1000
+        return -100
 
 def make_env(id: str, patient_name: str, history_length=6, reward_function=custom_reward, print_space=True, flatten=True):
     gym.envs.register(

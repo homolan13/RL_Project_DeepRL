@@ -120,6 +120,21 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
+    def get_env_info(self, print_info=False):
+        env_id = self.env.unwrapped.spec.id
+        if print_info:
+            print('Environment ID: ', env_id)
+
+        return env_id
+
+    def change_env(self, new_env):
+        assert new_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
+        assert new_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
+
+        old_env_info = self.get_env_info()
+        self.env = new_env
+        print(f'Environment changed from {old_env_info} to {self.get_env_info()}')
+
     def _train(self, batch_size: int, target_update_period: int, iter: list, max_patience: int, add_noise: bool, path=None):
         CHO_idx = int(2*self.state_dim/3 - 1)
         min_iter = iter[0]
@@ -203,7 +218,7 @@ class DDPGAgent(object):
 
         return training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, iter=[1000, 10000], max_patience=800, path='agent_state', filename='general_training_loss.json'):
+    def general_training(self, batch_size=32, target_update_period=100, iter=[1000, 7000], max_patience=800, path='agent_state', filename='general_training_loss.json'):
         g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
@@ -215,19 +230,10 @@ class DDPGAgent(object):
 
         return g_training_loss
 
-    def personalized_training(self, individual_env, batch_size=32, target_update_period=100, iter=[500, 5000], max_patience=500, path='agent_state_finetuned', filename='personalized_training_loss.json'):
+    def personalized_training(self, batch_size=32, target_update_period=100, iter=[500, 4000], max_patience=500, path='agent_state_finetuned', filename='personalized_training_loss.json'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
-        assert individual_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
-        assert individual_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
-
-        # Change to individual environment (but keep old one)
-        temp_env = self.env
-        self.env = individual_env
 
         ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)
-
-        # Change back to original environment
-        self.env = temp_env
 
         if filename is not None: # Save critic and actor loss to json file
             file = os.path.join(path, filename)
@@ -237,7 +243,7 @@ class DDPGAgent(object):
 
         return ft_training_loss
 
-    def evaluate_policy(self, individual_env=None, max_iter=int(4*24*3600/3), render=False, print_output=True): # Max_iter is set to yield an episode for 4 days, given sample rate of 3 min
+    def evaluate_policy(self, max_iter=int(4*24*3600/3), render=False, print_output=True): # Max_iter is set to yield an episode for 4 days, given sample rate of 3 min
         CGM_idx = int(self.state_dim/3 - 1)
         CHO_idx = int(2*self.state_dim/3 - 1)
 
@@ -245,13 +251,6 @@ class DDPGAgent(object):
         actor_output = []
         in_range = {'target': 0, 'hypo': 0, 'hyper': 0, 'total': 0}
         metrics = {'is_alive': True}
-
-        # Change to individual environment (but keep old one)
-        if individual_env is not None:
-            assert individual_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
-            assert individual_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
-            temp_env = self.env
-            self.env = individual_env
 
         state, info = self.env.reset()
         last_meal = 0
@@ -293,10 +292,6 @@ class DDPGAgent(object):
         metrics['TIR'] = in_range['target']/in_range['total']
         metrics['hypo'] = in_range['hypo']/in_range['total']
         metrics['hyper'] = in_range['hyper']/in_range['total']
-
-        if individual_env is not None:
-            # Change back to original environment
-            self.env = temp_env
 
         return metrics
 

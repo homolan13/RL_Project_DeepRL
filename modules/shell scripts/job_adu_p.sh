@@ -7,10 +7,10 @@
 #SBATCH --mail-type=FAIL,END
 
 # Job name 
-#SBATCH --job-name="Simglucose DDPG ---adult---"
+#SBATCH --job-name="DDPG Adult Personalized"
 
 # Runtime and memory
-#SBATCH --time=08:00:00
+#SBATCH --time=07:00:00
 #SBATCH --mem-per-cpu=2G
 
 #SBATCH --cpus-per-task=8
@@ -23,4 +23,4 @@
 singularity exec --nv docker://pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime pip install -U -e simglucose_local # Gym will also be installed
 
 # Run script #
-singularity exec --nv docker://pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime python training_adult.py
+singularity exec --nv docker://pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime python p_training_adult.py
