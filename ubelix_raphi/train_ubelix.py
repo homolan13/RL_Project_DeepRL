@@ -220,7 +220,7 @@ def custom_reward(BG):
         return -1
     # Other cases
     else:
-        return -2
+        return -100
 
 from simglucose.simulation.scenario_gen import RandomScenario
 
