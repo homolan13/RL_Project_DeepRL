@@ -108,7 +108,7 @@ class DDPGAgent(object):
         models = [self.actor, self.actor_target, self.actor_optimizer, self.critic, self.critic_target, self.critic_optimizer]
         fnames = ['actor', 'actor_target', 'actor_optimizer', 'critic', 'critic_target', 'critic_optimizer']
         for m, f in zip(models, fnames):
-            m.load_state_dict(th.load(os.path.join(path, f+'.pt'), map_location=self.device))
+            m = th.load(os.path.join(path, f+'.pt'), map_location=self.device)
         print(f'Agent loaded from folder {path}')
     
     def soft_update(self):
@@ -153,9 +153,9 @@ class DDPGAgent(object):
                     start_state = state
                     start_time = info['time']
                     if add_noise: # Add noise when doing general training
-                        noise = np.random.normal(0, 0.3, self.action_dim)
+                        noise = np.random.normal(0, 0.3, (self.action_dim,))
                     else: # No noise when doing personalized training
-                        noise = [0] * self.action_dim
+                        noise = np.zeros(shape=(self.action_dim,))
                     bolus_action = self.select_action(start_state) + noise
                     last_meal = state[CHO_idx]
                     state, reward, done, _, info = self.env.step(bolus_action) # inject bolus
@@ -218,7 +218,7 @@ class DDPGAgent(object):
 
         return training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, iter=[1000, 7000], max_patience=800, path='agent_state', filename='general_training_loss.json'):
+    def general_training(self, batch_size=32, target_update_period=100, iter=[1000, 7000], max_patience=600, path='agent_state', filename='general_training_loss.json'):
         g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
@@ -230,7 +230,7 @@ class DDPGAgent(object):
 
         return g_training_loss
 
-    def personalized_training(self, batch_size=32, target_update_period=100, iter=[500, 4000], max_patience=500, path='agent_state_finetuned', filename='personalized_training_loss.json'):
+    def personalized_training(self, batch_size=32, target_update_period=100, iter=[500, 4000], max_patience=350, path='agent_state_finetuned', filename='personalized_training_loss.json'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
 
         ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)
