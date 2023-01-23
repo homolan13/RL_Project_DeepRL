@@ -282,7 +282,7 @@ class DDPGAgent(object):
             if done: 
                 if print_output:
                     metrics['is_alive'] = False    
-                    print(f'Episode finished after {t+1} timesteps (patient died).')
+                    print(f'Episode finished after {t+1}/{max_iter} timesteps (patient died).')
                 break
 
         if print_output:
