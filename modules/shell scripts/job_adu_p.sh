@@ -7,10 +7,10 @@
 #SBATCH --mail-type=FAIL,END
 
 # Job name 
-#SBATCH --job-name="DDPG Adult Personalized"
+#SBATCH --job-name="p_adu"
 
 # Runtime and memory
-#SBATCH --time=07:00:00
+#SBATCH --time=04:00:00
 #SBATCH --mem-per-cpu=2G
 
 #SBATCH --cpus-per-task=8

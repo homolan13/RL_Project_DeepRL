@@ -218,28 +218,26 @@ class DDPGAgent(object):
 
         return training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, iter=[200, 1000], max_patience=100, path='agent_state', filename='general_training_loss.json'):
+    def general_training(self, batch_size=32, target_update_period=100, iter=[200, 1000], max_patience=200, path='agent_state'):
         g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
-        if filename is not None: # Save critic and actor loss to json file
-            file = os.path.join(path, filename)
-            with open(file, 'w') as f:
-                json.dump(g_training_loss, f)
-            print(f'Training loss saved to {file}')
+        file = os.path.join(path, 'general_training_loss.json')
+        with open(file, 'w') as f:
+            json.dump(g_training_loss, f)
+        print(f'Training loss saved to {file}')
 
         return g_training_loss
 
-    def personalized_training(self, batch_size=32, target_update_period=100, iter=[100, 500], max_patience=50, path='agent_state_finetuned', filename='personalized_training_loss.json'):
+    def personalized_training(self, batch_size=32, target_update_period=100, iter=[100, 600], max_patience=100, path='agent_state_finetuned'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
 
         ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)
 
-        if filename is not None: # Save critic and actor loss to json file
-            file = os.path.join(path, filename)
-            with open(file, 'w') as f:
-                json.dump(ft_training_loss, f)
-            print(f'Critic loss saved to {file}')
+        file = os.path.join(path, 'personalized_training_loss.json')
+        with open(file, 'w') as f:
+            json.dump(ft_training_loss, f)
+        print(f'Training loss saved to {file}')
 
         return ft_training_loss
 
@@ -281,7 +279,8 @@ class DDPGAgent(object):
 
             if done: 
                 if print_output:
-                    metrics['is_alive'] = False    
+                    metrics['is_alive'] = False
+                    print(40*' ', end='\r')  
                     print(f'Episode finished after {t+1}/{max_iter} timesteps (patient died).')
                 break
 
