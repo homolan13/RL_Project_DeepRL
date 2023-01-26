@@ -218,7 +218,7 @@ class DDPGAgent(object):
 
         return training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, iter=[800, 3000], max_patience=350, path='agent_state'):
+    def general_training(self, batch_size=32, target_update_period=100, iter=[600, 1500], max_patience=350, path='agent_state'):
         g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
@@ -229,7 +229,7 @@ class DDPGAgent(object):
 
         return g_training_loss
 
-    def personalized_training(self, batch_size=32, target_update_period=100, iter=[400, 1500], max_patience=175, path='agent_state_finetuned'):
+    def personalized_training(self, batch_size=32, target_update_period=100, iter=[300, 900], max_patience=175, path='agent_state_finetuned'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
 
         ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)

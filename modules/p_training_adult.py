@@ -8,7 +8,7 @@ def main():
     agent.is_pretrained = True # Manual override
     agent.load_agent('adult_general_training_state') # load the general training model
 
-    _ = agent.personalized_training(path='adult_personalized_training_state')
+    _ = agent.personalized_training(path='adult_personalized_training_state', iter=[300, 1000])
 
 if __name__ == '__main__':
     main()
