@@ -53,7 +53,7 @@ class Actor(th.nn.Module): # state -> action
         a = F.relu(self.l2(a))
         a = F.relu(self.l3(a))
         a = th.sigmoid(self.l4(a))
-        return 1.8 * a + 0.2 # scale to [0.2, 2.0]
+        return 0.8 * a + 0.6 # scale to [0.2, 2.0]
 
 class Critic(th.nn.Module): # state + action -> Q(s,a) (Q-Network)
     def __init__(self, state_dimension, action_dimension):
@@ -108,7 +108,7 @@ class DDPGAgent(object):
         models = [self.actor, self.actor_target, self.actor_optimizer, self.critic, self.critic_target, self.critic_optimizer]
         fnames = ['actor', 'actor_target', 'actor_optimizer', 'critic', 'critic_target', 'critic_optimizer']
         for m, f in zip(models, fnames):
-            m.load_state_dict(th.load(os.path.join(path, f+'.pt'), map_location=self.device))
+            m = th.load(os.path.join(path, f+'.pt'), map_location=self.device)
         print(f'Agent loaded from folder {path}')
     
     def soft_update(self):
@@ -153,9 +153,9 @@ class DDPGAgent(object):
                     start_state = state
                     start_time = info['time']
                     if add_noise: # Add noise when doing general training
-                        noise = np.random.normal(0, 0.3, self.action_dim)
+                        noise = np.random.normal(0, 0.1, (self.action_dim,))
                     else: # No noise when doing personalized training
-                        noise = [0] * self.action_dim
+                        noise = np.zeros(shape=(self.action_dim,))
                     bolus_action = self.select_action(start_state) + noise
                     last_meal = state[CHO_idx]
                     state, reward, done, _, info = self.env.step(bolus_action) # inject bolus
@@ -218,32 +218,30 @@ class DDPGAgent(object):
 
         return training_loss
 
-    def general_training(self, batch_size=32, target_update_period=100, iter=[1000, 7000], max_patience=800, path='agent_state', filename='general_training_loss.json'):
+    def general_training(self, batch_size=32, target_update_period=100, iter=[600, 1500], max_patience=350, path='agent_state'):
         g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
-        if filename is not None: # Save critic and actor loss to json file
-            file = os.path.join(path, filename)
-            with open(file, 'w') as f:
-                json.dump(g_training_loss, f)
-            print(f'Training loss saved to {file}')
+        file = os.path.join(path, 'general_training_loss.json')
+        with open(file, 'w') as f:
+            json.dump(g_training_loss, f)
+        print(f'Training loss saved to {file}')
 
         return g_training_loss
 
-    def personalized_training(self, batch_size=32, target_update_period=100, iter=[500, 4000], max_patience=500, path='agent_state_finetuned', filename='personalized_training_loss.json'):
+    def personalized_training(self, batch_size=32, target_update_period=100, iter=[300, 900], max_patience=175, path='agent_state_finetuned'):
         assert self.is_pretrained == True, 'Agent must be pretrained before finetuning'
 
         ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)
 
-        if filename is not None: # Save critic and actor loss to json file
-            file = os.path.join(path, filename)
-            with open(file, 'w') as f:
-                json.dump(ft_training_loss, f)
-            print(f'Critic loss saved to {file}')
+        file = os.path.join(path, 'personalized_training_loss.json')
+        with open(file, 'w') as f:
+            json.dump(ft_training_loss, f)
+        print(f'Training loss saved to {file}')
 
         return ft_training_loss
 
-    def evaluate_policy(self, max_iter=int(4*24*3600/3), render=False, print_output=True): # Max_iter is set to yield an episode for 4 days, given sample rate of 3 min
+    def evaluate_policy(self, max_iter=int(4*24*60/3), render=False, print_output=True): # Max_iter is set to yield an episode for 4 days, given sample rate of 3 min
         CGM_idx = int(self.state_dim/3 - 1)
         CHO_idx = int(2*self.state_dim/3 - 1)
 
@@ -257,8 +255,8 @@ class DDPGAgent(object):
         for t in range(max_iter):
             
             if print_output:
-                print(20*' ', end='\r')
-                print('Still alive', (t%4)*'.', end='\r')
+                print(40*' ', end='\r')
+                print('Still alive' + (t%4)*'.' + (4-(t%4))*' ' + f'({t}/{max_iter})', end='\r')
             
             if render:
                 self.env.render(mode='human')
@@ -281,11 +279,13 @@ class DDPGAgent(object):
 
             if done: 
                 if print_output:
-                    metrics['is_alive'] = False    
-                    print(f'Episode finished after {t+1} timesteps (patient died).')
+                    metrics['is_alive'] = False
+                    print(40*' ', end='\r')  
+                    print(f'Episode finished after {t+1}/{max_iter} timesteps (patient died).')
                 break
 
         if print_output:
+            print(40*' ', end='\r')
             print('Episode finished.')
 
         metrics['actor_output'] = actor_output
