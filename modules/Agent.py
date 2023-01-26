@@ -127,13 +127,14 @@ class DDPGAgent(object):
 
         return env_id
 
-    def change_env(self, new_env):
+    def change_env(self, new_env, print_info=True):
         assert new_env.observation_space.shape[0] == self.state_dim, 'State dimension mismatch'
         assert new_env.action_space.shape[0] == self.action_dim, 'Action dimension mismatch'
 
         old_env_info = self.get_env_info()
         self.env = new_env
-        print(f'Environment changed from {old_env_info} to {self.get_env_info()}')
+        if print_info:
+            print(f'Environment changed from {old_env_info} to {self.get_env_info()}')
 
     def _train(self, batch_size: int, target_update_period: int, iter: list, max_patience: int, add_noise: bool, path=None):
         CHO_idx = int(2*self.state_dim/3 - 1)
@@ -222,7 +223,7 @@ class DDPGAgent(object):
         g_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=True, path=path)
         self.is_pretrained = True
 
-        file = os.path.join(path, 'general_training_loss.json')
+        file = os.path.join(path, 'training_loss.json')
         with open(file, 'w') as f:
             json.dump(g_training_loss, f)
         print(f'Training loss saved to {file}')
@@ -234,7 +235,7 @@ class DDPGAgent(object):
 
         ft_training_loss = self._train(batch_size=batch_size, target_update_period=target_update_period, iter=iter, max_patience=max_patience, add_noise=False, path=path)
 
-        file = os.path.join(path, 'personalized_training_loss.json')
+        file = os.path.join(path, 'training_loss.json')
         with open(file, 'w') as f:
             json.dump(ft_training_loss, f)
         print(f'Training loss saved to {file}')
