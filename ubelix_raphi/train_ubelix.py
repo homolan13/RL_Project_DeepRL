@@ -118,7 +118,7 @@ class DDPGAgent(object):
     def select_action(self, state): # Actor selects action based on current state
         return self.actor(th.tensor(state, dtype=th.float32).to(self.device)).detach().cpu().numpy()
 
-    def train(self, batch_size=32, target_update_period=10, max_iter=10000, max_patience=700):
+    def train(self, batch_size=32, target_update_period=10, max_iter=10000, max_patience=600, min_iter=2500):
         CHO_idx = int(2*self.state_dim/3 - 1)
         critic_training_loss = []
         min_critic_loss = float('inf')
@@ -178,11 +178,12 @@ class DDPGAgent(object):
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
-                # Save training loss   
-                if critic_loss < min_critic_loss:
-                    self.save_agent()
-                    min_critic_loss = critic_loss
-                    patience = max_patience
+                if it > min_iter:
+                    # Save training loss   
+                    if critic_loss < min_critic_loss:
+                        self.save_agent()
+                        min_critic_loss = critic_loss
+                        patience = max_patience
                 critic_training_loss.append([critic_loss.item(), actor_loss.item()])
                 
                 # Update target networks
@@ -192,11 +193,12 @@ class DDPGAgent(object):
                 if it % 5 == 0:
                     print(f'Iteration: {it+1}, Critic loss: {critic_loss.item():.3f} (min: {min_critic_loss:.3f}), Patience left: {patience}')
 
-                # Convergence check
-                patience -= 1
-                if patience == 0:
-                    print('Critic converged...')
-                    break
+                if it > min_iter:
+                    # Convergence check
+                    patience -= 1
+                    if patience == 0:
+                        print('Critic converged...')
+                        break
 
         return critic_training_loss
 
@@ -220,7 +222,7 @@ def custom_reward(BG):
         return -1
     # Other cases
     else:
-        return -100
+        return -500
 
 from simglucose.simulation.scenario_gen import RandomScenario
 
