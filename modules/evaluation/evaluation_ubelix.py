@@ -8,7 +8,7 @@ def evaluation(agent, envs, json_path):
     metrics = []
     for i in tqdm(range(50)):
         if envs is not None:
-            agent.change_env(envs[int(i%len(envs))])
+            agent.change_env(envs[int(i%len(envs))], print_info=False)
         m = agent.evaluate_policy(print_output=False)
         if m['is_alive']:
             print('Survived')
